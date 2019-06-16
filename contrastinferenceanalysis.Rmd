@@ -1,0 +1,73 @@
+---
+title: "griceinferencemturk"
+output: html_document
+---
+
+```{r load_libraries}
+library(tidyverse)
+library(here)
+library(ggthemes)
+library(tidyboot)
+theme_set(theme_classic(base_size = 18))
+```
+
+```{r load_files_contrast_feature}
+files <- list.files(("~/Documents/contrast-feature-inference-cosub-jun_13_19/production-results/"), 
+                    pattern = ".json", full.names = T, recursive = T) 
+read_grice_file <- function(file, newnames) {
+  
+    json_out <- fromJSON(file)
+    id <- json_out$WorkerId
+    
+    raw_data <- json_out$answers$data 
+    
+    cols <- raw_data[1] %>%
+      str_split(",") %>%
+      unlist() %>%
+      str_trim()
+      
+    raw_data[] %>%
+      enframe(name = NULL) %>%
+      slice(-1) %>%
+      separate(value, into = cols, sep = ",") %>%
+      mutate(subid = id)
+}
+data <- map_df(files, read_grice_file)  %>% 
+  mutate(subid = salt(subid, .seed = 400)) %>%
+  mutate(subid = as.numeric(as.factor(subid)))
+write_csv(data, here("data/turk_data_category_inference.csv"))
+```
+
+```{r read_inference_data}
+data <- read_csv(here("data/turk_data_category_inference.csv")) %>%
+  mutate(colorasked = colorasked == "TRUE")
+```
+
+```{r mean_color}
+mean_data <- data %>%
+  group_by(searchtype, colorasked, subid) %>%
+  summarise(percentage = mean(percentage), n = n()) %>%
+  tidyboot_mean(percentage) %>%
+  ungroup() %>%
+  mutate(colorasked = factor(colorasked, labels = c("noun", "adjective noun")))
+```
+
+```{r mean_size}
+mean_data <- data %>%
+  group_by(searchtype, colorasked, subid) %>%
+  summarise(percentage = mean(percentage), n = n()) %>%
+  tidyboot_mean(percentage) %>%
+  ungroup() %>%
+  mutate(colorasked = factor(colorasked, labels = c("noun", "adjective noun")))
+```
+
+```{r unique, fig.width = 10}
+ggplot(mean_data,
+       aes(x = searchtype)) +
+  facet_wrap(~colorasked) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper, y = empirical_stat),
+                  position = position_dodge(.5)) + 
+  ylab("percentage") + 
+  xlab("")
+
+```
