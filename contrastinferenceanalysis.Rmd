@@ -8,11 +8,12 @@ library(tidyverse)
 library(here)
 library(ggthemes)
 library(tidyboot)
+library(lme4)
 theme_set(theme_classic(base_size = 18))
 ```
 
 ```{r load_files_contrast_feature}
-files <- list.files(("~/Documents/contrast-feature-inference-cosub-jun_13_19/production-results/"), 
+files <- list.files(("~/Documents/contrast-feature-inference-size-cosub-jun_16_19/production-results/"), 
                     pattern = ".json", full.names = T, recursive = T) 
 read_grice_file <- function(file, newnames) {
   
@@ -35,16 +36,20 @@ read_grice_file <- function(file, newnames) {
 data <- map_df(files, read_grice_file)  %>% 
   mutate(subid = salt(subid, .seed = 400)) %>%
   mutate(subid = as.numeric(as.factor(subid)))
-write_csv(data, here("data/turk_data_category_inference.csv"))
+write_csv(data, here("/Documents/contrastdata/turk_data_category_inference_size.csv"))
 ```
 
 ```{r read_inference_data}
-data <- read_csv(here("data/turk_data_category_inference.csv")) %>%
+colordata <- read_csv("~/Documents/contrastdata/turk_data_category_inference_color.csv") %>%
   mutate(colorasked = colorasked == "TRUE")
+
+sizedata <- read_csv("~/Documents/contrastdata/turk_data_category_inference_size.csv") %>%
+  mutate(sizeasked = sizeasked == "TRUE")
 ```
 
 ```{r mean_color}
-mean_data <- data %>%
+mean_data_color <- colordata %>%
+  filter(searchtype != "attncheck") %>%
   group_by(searchtype, colorasked, subid) %>%
   summarise(percentage = mean(percentage), n = n()) %>%
   tidyboot_mean(percentage) %>%
@@ -53,21 +58,40 @@ mean_data <- data %>%
 ```
 
 ```{r mean_size}
-mean_data <- data %>%
-  group_by(searchtype, colorasked, subid) %>%
+mean_data_size <- sizedata %>%
+  filter(searchtype != "attncheck") %>%
+  group_by(searchtype, sizeasked, subid) %>%
   summarise(percentage = mean(percentage), n = n()) %>%
   tidyboot_mean(percentage) %>%
   ungroup() %>%
-  mutate(colorasked = factor(colorasked, labels = c("noun", "adjective noun")))
+  mutate(sizeasked = factor(sizeasked, labels = c("noun", "adjective noun")))
 ```
 
 ```{r unique, fig.width = 10}
-ggplot(mean_data,
+ggplot(mean_data_color,
        aes(x = searchtype)) +
   facet_wrap(~colorasked) + 
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper, y = empirical_stat),
                   position = position_dodge(.5)) + 
   ylab("percentage") + 
   xlab("")
+
+ggplot(mean_data_size,
+       aes(x = searchtype)) +
+  facet_wrap(~sizeasked) + 
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper, y = empirical_stat),
+                  position = position_dodge(.5)) + 
+  ylab("percentage") + 
+  xlab("")
+
+colordataexcluded <- colordata %>%
+  filter(searchtype != "attncheck")
+
+colormodel <- lmer(percentage ~ searchtype * colorasked + (1|subid), data = colordataexcluded)
+
+sizedataexcluded <- sizedata %>%
+  filter(searchtype != "attncheck")
+
+sizemodel <- lmer(percentage ~ searchtype * sizeasked + (1|subid), data = sizedataexcluded)
 
 ```
