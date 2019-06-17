@@ -9,12 +9,12 @@ library(here)
 library(ggthemes)
 library(tidyboot)
 library(lme4)
+library(jsonlite)
+library(anonymizer)
 theme_set(theme_classic(base_size = 18))
 ```
 
-```{r load_files_contrast_feature}
-files <- list.files(("~/Documents/contrast-feature-inference-size-cosub-jun_16_19/production-results/"), 
-                    pattern = ".json", full.names = T, recursive = T) 
+```{r load_helper, eval = F}
 read_grice_file <- function(file, newnames) {
   
     json_out <- fromJSON(file)
@@ -33,17 +33,37 @@ read_grice_file <- function(file, newnames) {
       separate(value, into = cols, sep = ",") %>%
       mutate(subid = id)
 }
+```
+
+```{r size_data, eval = F}
+files <- list.files(here(
+  "raw_data/contrast-feature-inference-size-cosub-jun_16_19/"),
+                    pattern = ".json", full.names = T, recursive = T)
+
+
 data <- map_df(files, read_grice_file)  %>% 
   mutate(subid = salt(subid, .seed = 400)) %>%
   mutate(subid = as.numeric(as.factor(subid)))
-write_csv(data, here("/Documents/contrastdata/turk_data_category_inference_size.csv"))
+
+write_csv(data, here("data/turk_data_category_inference_size.csv"))
+
+files <- list.files(here(
+  "raw_data/contrast-feature-inference-color-cosub-jun_16_19/"),
+                    pattern = ".json", full.names = T, recursive = T)
+
+
+data <- map_df(files, read_grice_file)  %>% 
+  mutate(subid = salt(subid, .seed = 400)) %>%
+  mutate(subid = as.numeric(as.factor(subid)))
+
+write_csv(data, here("data/turk_data_category_inference_color.csv"))
 ```
 
 ```{r read_inference_data}
-colordata <- read_csv("~/Documents/contrastdata/turk_data_category_inference_color.csv") %>%
+colordata <- read_csv(here("data/turk_data_category_inference_color.csv")) %>%
   mutate(colorasked = colorasked == "TRUE")
 
-sizedata <- read_csv("~/Documents/contrastdata/turk_data_category_inference_size.csv") %>%
+sizedata <- read_csv(here("data/turk_data_category_inference_size.csv")) %>%
   mutate(sizeasked = sizeasked == "TRUE")
 ```
 
