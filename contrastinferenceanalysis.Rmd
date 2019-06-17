@@ -9,8 +9,11 @@ library(here)
 library(ggthemes)
 library(tidyboot)
 library(lme4)
+library(lmerTest)
 library(jsonlite)
 library(anonymizer)
+library(broom.mixed)
+library(knitr)
 theme_set(theme_classic(base_size = 18))
 ```
 
@@ -61,57 +64,84 @@ write_csv(data, here("data/turk_data_category_inference_color.csv"))
 
 ```{r read_inference_data}
 colordata <- read_csv(here("data/turk_data_category_inference_color.csv")) %>%
-  mutate(colorasked = colorasked == "TRUE")
+  mutate(colorasked = colorasked == "TRUE",
+         type = "color",
+         attncheckscore = as.numeric(attncheckscore),
+         searchtype = if_else(searchtype == "monochrome", "same",
+                              if_else(searchtype == "polychrome",
+                                      "different", searchtype))) %>%
+  rename(adjective = colorasked) 
 
 sizedata <- read_csv(here("data/turk_data_category_inference_size.csv")) %>%
-  mutate(sizeasked = sizeasked == "TRUE")
+  mutate(sizeasked = sizeasked == "TRUE",
+         type = "size",
+         attncheckscore = as.numeric(attncheckscore),
+         searchtype = if_else(searchtype == "samesize", "same",
+                              if_else(searchtype == "differentsizes",
+                                      "different", searchtype))) %>%
+  rename(adjective = sizeasked)
+
+all_data <- bind_rows(colordata, sizedata)
+```
+
+```{r filtering}
+attention_data <- all_data %>%
+  filter(searchtype == "attncheck") %>%
+  select(subid, attncheckscore)
+
+attention_data %>%
+  ggplot(aes(x = attncheckscore)) +
+  geom_histogram(fill = "white", color = "black") 
+
+kept_subjs <- attention_data %>%
+  filter(attncheckscore >= 7) %>%
+  pull(subid)
+
+filtered_data <- all_data %>%
+  filter(subid %in% kept_subjs) %>%
+  filter(searchtype != "attncheck") %>%
+  mutate(adjective = factor(if_else(adjective, "adjective noun", "noun"), 
+         levels = c("noun", "adjective noun")),
+         searchtype = factor(searchtype, levels = c("contrast", "different", "same")))
 ```
 
 ```{r mean_color}
-mean_data_color <- colordata %>%
-  filter(searchtype != "attncheck") %>%
-  group_by(searchtype, colorasked, subid) %>%
-  summarise(percentage = mean(percentage), n = n()) %>%
-  tidyboot_mean(percentage) %>%
-  ungroup() %>%
-  mutate(colorasked = factor(colorasked, labels = c("noun", "adjective noun")))
+means <- filtered_data %>%
+  group_by(type, adjective, searchtype, subid) %>%
+  summarise(percentage = mean(percentage)) %>%
+  tidyboot_mean(percentage)
+
+ggplot(means, aes(x = searchtype, color = type)) + 
+  facet_wrap(~adjective) + 
+  geom_pointrange(aes(y = empirical_stat, ymin = ci_lower, ymax = ci_upper), 
+                      position = position_dodge(.5)) +
+  scale_color_ptol()
 ```
 
-```{r mean_size}
-mean_data_size <- sizedata %>%
-  filter(searchtype != "attncheck") %>%
-  group_by(searchtype, sizeasked, subid) %>%
-  summarise(percentage = mean(percentage), n = n()) %>%
-  tidyboot_mean(percentage) %>%
-  ungroup() %>%
-  mutate(sizeasked = factor(sizeasked, labels = c("noun", "adjective noun")))
+
+```{r first_trial}
+first_means <- filtered_data %>%
+  group_by(type, subid) %>%
+  slice(1) %>%
+  group_by(type, adjective, searchtype, subid) %>%
+  summarise(percentage = mean(percentage)) %>%
+  tidyboot_mean(percentage)
+
+ggplot(first_means, aes(x = searchtype, color = type)) + 
+  facet_wrap(~adjective) + 
+  geom_pointrange(aes(y = empirical_stat, ymin = ci_lower, ymax = ci_upper), 
+                      position = position_dodge(.5)) + 
+  scale_color_ptol()
 ```
 
-```{r unique, fig.width = 10}
-ggplot(mean_data_color,
-       aes(x = searchtype)) +
-  facet_wrap(~colorasked) + 
-  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper, y = empirical_stat),
-                  position = position_dodge(.5)) + 
-  ylab("percentage") + 
-  xlab("")
+```{r models}
+model <- lmer(percentage ~ type * adjective * searchtype +
+                (adjective | subid),
+              control = lmerControl(optimizer = "bobyqa"),
+              data = filtered_data)
 
-ggplot(mean_data_size,
-       aes(x = searchtype)) +
-  facet_wrap(~sizeasked) + 
-  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper, y = empirical_stat),
-                  position = position_dodge(.5)) + 
-  ylab("percentage") + 
-  xlab("")
-
-colordataexcluded <- colordata %>%
-  filter(searchtype != "attncheck")
-
-colormodel <- lmer(percentage ~ searchtype * colorasked + (1|subid), data = colordataexcluded)
-
-sizedataexcluded <- sizedata %>%
-  filter(searchtype != "attncheck")
-
-sizemodel <- lmer(percentage ~ searchtype * sizeasked + (1|subid), data = sizedataexcluded)
-
+tidy(model) %>%
+  filter(effect == "fixed") %>%
+  select(-effect, -group, -df) %>%
+  kable()
 ```
