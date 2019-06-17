@@ -81,7 +81,9 @@ sizedata <- read_csv(here("data/turk_data_category_inference_size.csv")) %>%
                                       "different", searchtype))) %>%
   rename(adjective = sizeasked)
 
-all_data <- bind_rows(colordata, sizedata)
+all_data <- bind_rows(colordata, sizedata) %>%
+  mutate(rtsearch = rtsearch - 6500) %>%
+  mutate(log_rt = log(rtsearch))
 ```
 
 ```{r filtering}
@@ -98,6 +100,7 @@ kept_subjs <- attention_data %>%
   pull(subid)
 
 filtered_data <- all_data %>%
+  filter(rtsearch > 1000, rtsearch < 10000) %>%
   filter(subid %in% kept_subjs) %>%
   filter(searchtype != "attncheck") %>%
   mutate(adjective = factor(if_else(adjective, "adjective noun", "noun"), 
@@ -108,10 +111,20 @@ filtered_data <- all_data %>%
 ```{r mean_color}
 means <- filtered_data %>%
   group_by(type, adjective, searchtype, subid) %>%
-  summarise(percentage = mean(percentage)) %>%
-  tidyboot_mean(percentage)
+  gather(measure, value, percentage, log_rt) %>%
+  group_by(type, adjective, searchtype, measure, subid) %>%
+  summarise(value = mean(value)) %>%
+  tidyboot_mean(value)
 
-ggplot(means, aes(x = searchtype, color = type)) + 
+ggplot(filter(means, measure == "percentage"),
+       aes(x = searchtype, color = type)) + 
+  facet_wrap(~adjective) + 
+  geom_pointrange(aes(y = empirical_stat, ymin = ci_lower, ymax = ci_upper), 
+                      position = position_dodge(.5)) +
+  scale_color_ptol()
+
+ggplot(filter(means, measure == "log_rt"),
+       aes(x = searchtype, color = type)) + 
   facet_wrap(~adjective) + 
   geom_pointrange(aes(y = empirical_stat, ymin = ci_lower, ymax = ci_upper), 
                       position = position_dodge(.5)) +
@@ -141,6 +154,17 @@ model <- lmer(percentage ~ type * adjective * searchtype +
               data = filtered_data)
 
 tidy(model) %>%
+  filter(effect == "fixed") %>%
+  select(-effect, -group, -df) %>%
+  kable()
+
+rtmodel <- lmer(log_rt ~ type * adjective + type * searchtype +
+                  adjective * searchtype +
+                (1 | subid),
+              control = lmerControl(optimizer = "bobyqa"),
+              data = filtered_data)
+
+tidy(rtmodel) %>%
   filter(effect == "fixed") %>%
   select(-effect, -group, -df) %>%
   kable()
